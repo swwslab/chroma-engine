@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CHROMA ENGINE — V0.1</title>
+<style>
+:root{font-family:system-ui;background:#101419;color:#e8ecee}*{box-sizing:border-box}body{margin:0}header{padding:18px;border-bottom:1px solid #39424b}h1{font-size:22px;margin:0}small{color:#aab5be}.layout{display:grid;grid-template-columns:290px minmax(0,1fr);min-height:calc(100vh - 80px)}aside{padding:18px;background:#1a2027}section{border-bottom:1px solid #39424b;padding-bottom:16px;margin-bottom:16px}label{display:block;margin:12px 0 5px}input,select,button{width:100%;padding:9px;border:1px solid #52606b;border-radius:7px;background:#27323d;color:white}input[type=color]{height:44px}button{cursor:pointer;margin-top:9px;background:#315e6b}main{padding:16px;display:flex;flex-direction:column;gap:12px}canvas{width:100%;height:auto;max-height:72vh;background:#222b34;border-radius:12px}pre{white-space:pre-wrap;font-size:12px;color:#b6c6d1}@media(max-width:680px){.layout{grid-template-columns:1fr}aside{display:grid;grid-template-columns:1fr 1fr;gap:12px}section{margin:0}main{padding:10px}}
+</style></head><body>
+<header><h1>CHROMA ENGINE <small>V0.1 — géométrie & prévisualisation</small></h1><small>SWWS · recherche, pas de G-code machine</small></header>
+<div class="layout"><aside>
+<section><strong>01 — PROFIL</strong><label>Hauteur (mm)</label><input id="height" type="number" value="100" min="20" max="200"><label>Rayon (mm)</label><input id="radius" type="number" value="40" min="10" max="100"><label>Évasement (%)</label><input id="flare" type="range" min="-45" max="45" value="12"><label>Ondulation du profil (%)</label><input id="waist" type="range" min="-30" max="30" value="12"></section>
+<section><strong>02 — MOTIF</strong><label>Famille</label><select id="pattern"><option value="diamonds">Losanges</option><option value="waves">Ondes</option><option value="stripes">Bandes</option><option value="checker">Damier</option></select><label>Répétitions</label><input id="repeat" type="range" min="2" max="20" value="8"><label>Relief (mm, aperçu)</label><input id="relief" type="range" min="0" max="3" step=".1" value=".6"></section>
+<section><strong>03 — COULEURS</strong><label>Fond</label><input id="colorA" type="color" value="#287d48"><label>Motif</label><input id="colorB" type="color" value="#e47e39"></section>
+<section><strong>04 — EXPORT</strong><button id="json">Exporter paramètres JSON</button><button id="csv">Exporter points CSV (non imprimable)</button><small>Machine cible : Bambu A1 · AMS Lite · buse 0,8 mm. Aucune commande de machine n'est générée.</small></section>
+</aside><main><canvas id="view" width="900" height="800"></canvas><pre id="stats"></pre></main></div>
+<script>
+const ids=['height','radius','flare','waist','pattern','repeat','relief','colorA','colorB'];
+const el=id=>document.getElementById(id);
+const params=()=>Object.fromEntries(ids.map(id=>[id,el(id).type==='number'||el(id).type==='range'?Number(el(id).value):el(id).value]));
+const canvas=el('view'),ctx=canvas.getContext('2d');
+function shape(t,p){return p.radius*(1+p.flare/100*t+p.waist/100*Math.sin(Math.PI*t));}
+function pattern(u,v,p){let a=u*p.repeat,b=v*p.repeat*1.2;switch(p.pattern){case 'diamonds':return Math.abs(((a%1+1)%1)-.5)+Math.abs(((b%1+1)%1)-.5)<.33;case 'waves':return Math.abs(Math.sin(2*Math.PI*(a+Math.sin(b*2*Math.PI)*.18)))>.62;case 'stripes':return Math.sin(2*Math.PI*b)>.1;default:return (Math.floor(a)+Math.floor(b))%2===0;}}
+function download(name,content,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
+function render(){let p=params();const W=canvas.width,H=canvas.height;ctx.clearRect(0,0,W,H);let n=180,m=240;let maxR=p.radius*(1+Math.max(0,p.flare)/100+Math.abs(p.waist)/100);let scale=Math.min(2.9,300/maxR,670/p.height);let cx=W/2,base=H-70;
+for(let j=0;j<m;j++){let v=j/m,r=shape(v,p),y=base-v*p.height*scale;for(let i=0;i<n;i++){let u=i/n,theta=(u-.5)*Math.PI,front=Math.cos(theta);if(front<0)continue;let marked=pattern(u,v,p),rad=r+(marked?p.relief:0);let x=cx+Math.sin(theta)*rad*scale;ctx.fillStyle=marked?p.colorB:p.colorA;ctx.fillRect(x,y,Math.max(1,Math.cos(theta)*2.6),Math.max(1,p.height*scale/m+1));}}
+ctx.strokeStyle='#f0f5f6';ctx.lineWidth=3;ctx.beginPath();ctx.ellipse(cx,base-p.height*scale,shape(1,p)*scale,12,0,0,Math.PI*2);ctx.stroke();
+el('stats').textContent='APERÇU CONCEPTUEL — pas une simulation de dépôt\nHauteur : '+p.height+' mm · diamètre nominal : '+p.radius*2+' mm · buse cible : 0,8 mm\nLes couleurs sont une visualisation, pas des instructions AMS.';}
+ids.forEach(id=>el(id).addEventListener('input',render));
+el('json').onclick=()=>download('chroma-parameters.json',JSON.stringify({schema:'chroma-v0.1',machine:{model:'Bambu A1',nozzle_mm:.8,material_system:'AMS Lite'},parameters:params()},null,2),'application/json');
+el('csv').onclick=()=>{let p=params(),rows=['layer,theta_rad,x_mm,y_mm,z_mm,color_preview'];for(let j=0;j<=Math.ceil(p.height/.4);j++){let z=Math.min(p.height,j*.4),v=z/p.height,r=shape(v,p);for(let i=0;i<180;i++){let u=i/180,a=2*Math.PI*u,mark=pattern(u,v,p),rr=r+(mark?p.relief:0);rows.push([j,a.toFixed(5),(rr*Math.cos(a)).toFixed(3),(rr*Math.sin(a)).toFixed(3),z.toFixed(3),mark?'B':'A'].join(','));}}download('chroma-preview-points.csv',rows.join('\n'),'text/csv');};
+render();
+</script></body></html>
