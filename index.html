@@ -9,7 +9,14 @@
 <section><strong>02 — MOTIF</strong><label>Famille</label><select id="pattern"><option value="diamonds">Losanges</option><option value="waves">Ondes</option><option value="stripes">Bandes</option><option value="checker">Damier</option></select><label>Répétitions</label><input id="repeat" type="range" min="2" max="20" value="8"><label>Relief (mm, aperçu)</label><input id="relief" type="range" min="0" max="3" step=".1" value=".6"></section>
 <section><strong>03 — COULEURS</strong><label>Fond</label><input id="colorA" type="color" value="#287d48"><label>Motif</label><input id="colorB" type="color" value="#e47e39"></section>
 <section><strong>04 — EXPORT</strong><button id="json">Exporter paramètres JSON</button><button id="csv">Exporter points CSV (non imprimable)</button><small>Machine cible : Bambu A1 · AMS Lite · buse 0,8 mm. Aucune commande de machine n'est générée.</small></section>
-</aside><main><canvas id="view" width="900" height="800"></canvas><pre id="stats"></pre></main></div>
+</aside><main><canvas id="view" width="900" height="800"></canvas><pre id="stats"></pre><section id="paths-panel" style="padding:12px;border:1px solid #52606b;border-radius:10px">
+<strong>05 — TOOLPATH V0.3 (simulation)</strong>
+<label for="layerIndex">Couche affichée</label><input id="layerIndex" type="range" min="0" max="249" value="0" style="width:100%">
+<div id="layerInfo" aria-live="polite"></div>
+<canvas id="layerView" width="600" height="600" style="width:100%;max-width:480px;height:auto;background:#111b24"></canvas>
+<button id="exportPaths">Exporter trajectoires calculées (CSV)</button>
+<p><small>Trajectoires neutres. Couleurs indicatives : aucun changement AMS ni G-code machine.</small></p>
+</section></main></div>
 <script>
 const ids=['height','radius','flare','waist','pattern','repeat','relief','colorA','colorB'];
 const el=id=>document.getElementById(id);
@@ -26,4 +33,38 @@ ids.forEach(id=>el(id).addEventListener('input',render));
 el('json').onclick=()=>download('chroma-parameters.json',JSON.stringify({schema:'chroma-v0.1',machine:{model:'Bambu A1',nozzle_mm:.8,material_system:'AMS Lite'},parameters:params()},null,2),'application/json');
 el('csv').onclick=()=>{let p=params(),rows=['layer,theta_rad,x_mm,y_mm,z_mm,color_preview'];for(let j=0;j<=Math.ceil(p.height/.4);j++){let z=Math.min(p.height,j*.4),v=z/p.height,r=shape(v,p);for(let i=0;i<180;i++){let u=i/180,a=2*Math.PI*u,mark=pattern(u,v,p),rr=r+(mark?p.relief:0);rows.push([j,a.toFixed(5),(rr*Math.cos(a)).toFixed(3),(rr*Math.sin(a)).toFixed(3),z.toFixed(3),mark?'B':'A'].join(','));}}download('chroma-preview-points.csv',rows.join('\n'),'text/csv');};
 render();
+</script><script type="module">
+import {generate,asCsv} from "./src/toolpath.mjs";
+const $=id=>document.getElementById(id);
+const panel=$("paths-panel"), slider=$("layerIndex"), canvas=$("layerView"), cx=canvas.getContext("2d");
+let result=null;
+function read(){
+const val=id=>Number($(id).value);
+return {height:val("height"),radius:val("radius"),flare:val("flare"),waist:val("waist"),
+pattern:$("pattern").value,repeats:val("repeat"),relief:val("relief"),
+layerHeight:0.4,lineWidth:0.85,filamentDiameter:1.75,segments:180};
+}
+function draw(){
+if(!result)return;
+const layer=result.layers[Number(slider.value)];
+if(!layer)return;
+cx.clearRect(0,0,600,600);
+const maxR=Math.max(...layer.points.map(p=>Math.hypot(p.x,p.y)))+3,scale=265/maxR;
+cx.lineWidth=2.4;
+for(let i=1;i<layer.points.length;i++){
+const a=layer.points[i-1],b=layer.points[i];
+cx.strokeStyle=b.color==="B"?$("colorB").value:$("colorA").value;
+cx.beginPath();cx.moveTo(300+a.x*scale,300+a.y*scale);cx.lineTo(300+b.x*scale,300+b.y*scale);cx.stroke();
+}
+const switches=layer.points.reduce((n,p,i,pts)=>n+(i>0&&p.color!==pts[i-1].color?1:0),0);
+$("layerInfo").textContent="Couche "+(layer.layer+1)+"/"+result.layers.length+" · Z "+layer.z.toFixed(2)+" mm · "+switches+" transitions A/B (non planifiées)";
+}
+function update(){
+try{result=generate(read());slider.max=result.layers.length-1;slider.value=Math.min(Number(slider.value),result.layers.length-1);draw();panel.dataset.status="ready";}
+catch(e){result=null;$("layerInfo").textContent="Erreur de validation : "+e.message;cx.clearRect(0,0,600,600);}
+}
+slider.addEventListener("input",draw);
+["height","radius","flare","waist","pattern","repeat","relief","colorA","colorB"].forEach(id=>$(id).addEventListener("input",update));
+$("exportPaths").onclick=()=>{if(!result)return;const blob=new Blob([asCsv(result)],{type:"text/csv"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="chroma-neutral-toolpaths.csv";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+update();
 </script></body></html>
