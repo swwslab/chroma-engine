@@ -1,0 +1,9 @@
+{
+  "name": "chroma-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "description": "SWWS CHROMA experimental toolpath generator"
+}
